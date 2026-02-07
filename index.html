@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Infirmier le plus proche</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #333;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 24px; }
+    .search-container { position: relative; }
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 1rem;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      outline: none;
+    }
+    input:focus { border-color: #4a90d9; }
+    .suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      list-style: none;
+      z-index: 1000;
+      display: none;
+    }
+    .suggestions li {
+      padding: 10px 16px;
+      cursor: pointer;
+    }
+    .suggestions li:hover { background: #f0f4ff; }
+    #map {
+      width: 100%;
+      height: 400px;
+      margin-top: 20px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      display: none;
+    }
+    #results {
+      margin-top: 16px;
+      display: none;
+    }
+    .result-card {
+      padding: 16px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .result-card:hover { background: #fafafa; }
+    .result-card.closest {
+      border-color: #4a90d9;
+      background: #f0f4ff;
+    }
+    .result-card .name { font-weight: 600; margin-bottom: 4px; }
+    .result-card .distance { color: #555; }
+    .result-card .duration { color: #888; font-size: 0.9rem; }
+    .badge {
+      display: inline-block;
+      background: #4a90d9;
+      color: white;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+    }
+    #loading {
+      display: none;
+      margin-top: 16px;
+      color: #888;
+    }
+    #error {
+      display: none;
+      margin-top: 16px;
+      color: #c0392b;
+    }
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: #666;
+    }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-color {
+      width: 20px;
+      height: 4px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Trouver le cabinet infirmier le plus proche</h1>
+
+  <div class="search-container">
+    <input type="text" id="address" placeholder="Saisissez une adresse..." autocomplete="off">
+    <ul class="suggestions" id="suggestions"></ul>
+  </div>
+
+  <div id="loading">Calcul des itinéraires en cours...</div>
+  <div id="error"></div>
+  <div id="map"></div>
+  <div id="results"></div>
+
+  <script>
+    const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad"];
+
+    const CABINETS = [
+      { name: "Cabinet Infirmier Montbron", lat: 45.65982400601837, lon: 0.5039343458780332 },
+      { name: "Géraldine", lat: 45.57327615031734, lon: 0.5580555368320286 },
+      { name: "Richard Jacqueline", lat: 45.52428432170033, lon: 0.6633227352942614 },
+    ];
+
+    const addressInput = document.getElementById("address");
+    const suggestionsList = document.getElementById("suggestions");
+    const resultsDiv = document.getElementById("results");
+    const loadingDiv = document.getElementById("loading");
+    const errorDiv = document.getElementById("error");
+    const mapDiv = document.getElementById("map");
+
+    let map = null;
+    let mapLayers = [];
+    let debounceTimer;
+
+    function initMap() {
+      if (map) return;
+      mapDiv.style.display = "block";
+      map = L.map("map");
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 18,
+      }).addTo(map);
+    }
+
+    function clearMap() {
+      mapLayers.forEach(l => map.removeLayer(l));
+      mapLayers = [];
+    }
+
+    // Autocomplétion BAN
+    addressInput.addEventListener("input", () => {
+      clearTimeout(debounceTimer);
+      const q = addressInput.value.trim();
+      if (q.length < 3) { suggestionsList.style.display = "none"; return; }
+      debounceTimer = setTimeout(() => fetchSuggestions(q), 300);
+    });
+
+    async function fetchSuggestions(q) {
+      try {
+        const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`);
+        const data = await res.json();
+        suggestionsList.innerHTML = "";
+        if (!data.features.length) { suggestionsList.style.display = "none"; return; }
+        data.features.forEach(f => {
+          const li = document.createElement("li");
+          li.textContent = f.properties.label;
+          li.addEventListener("click", () => selectAddress(f));
+          suggestionsList.appendChild(li);
+        });
+        suggestionsList.style.display = "block";
+      } catch (e) {
+        suggestionsList.style.display = "none";
+      }
+    }
+
+    async function selectAddress(feature) {
+      const [lon, lat] = feature.geometry.coordinates;
+      addressInput.value = feature.properties.label;
+      suggestionsList.style.display = "none";
+      await computeRoutes(lon, lat);
+    }
+
+    async function computeRoutes(startLon, startLat) {
+      loadingDiv.style.display = "block";
+      resultsDiv.style.display = "none";
+      errorDiv.style.display = "none";
+
+      try {
+        const promises = CABINETS.map(cab =>
+          fetch("https://data.geopf.fr/navigation/itineraire", {
+            method: "POST",
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({
+              resource: "bdtopo-osrm",
+              start: `${startLon},${startLat}`,
+              end: `${cab.lon},${cab.lat}`,
+              profile: "car",
+              getSteps: false,
+              getBbox: false,
+              geometryFormat: "geojson",
+            }),
+          })
+          .then(r => r.json())
+          .then(data => ({
+            name: cab.name,
+            lat: cab.lat,
+            lon: cab.lon,
+            distance: data.distance,
+            duration: data.duration,
+            geometry: data.geometry,
+          }))
+        );
+
+        const results = await Promise.all(promises);
+        results.sort((a, b) => a.distance - b.distance);
+        displayResults(results, startLat, startLon);
+      } catch (e) {
+        errorDiv.textContent = "Erreur lors du calcul d'itinéraire. Veuillez réessayer.";
+        errorDiv.style.display = "block";
+      } finally {
+        loadingDiv.style.display = "none";
+      }
+    }
+
+    function formatDistance(meters) {
+      return meters >= 1000
+        ? (meters / 1000).toFixed(1) + " km"
+        : Math.round(meters) + " m";
+    }
+
+    function formatDuration(seconds) {
+      const mins = Math.round(seconds / 60);
+      if (mins < 60) return mins + " min";
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return h + " h " + (m > 0 ? m + " min" : "");
+    }
+
+    function displayResults(results, startLat, startLon) {
+      // Carte
+      initMap();
+      clearMap();
+
+      const bounds = L.latLngBounds();
+
+      // Marqueur de départ
+      const startMarker = L.marker([startLat, startLon], {
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="background:#e74c3c;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        }),
+      }).addTo(map).bindPopup("<b>Votre adresse</b>");
+      mapLayers.push(startMarker);
+      bounds.extend([startLat, startLon]);
+
+      // Tracés et marqueurs cabinets
+      const routeLayersMap = {};
+      results.forEach((r, i) => {
+        const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+
+        // Tracé de l'itinéraire
+        if (r.geometry) {
+          const routeLine = L.geoJSON(r.geometry, {
+            style: {
+              color: color,
+              weight: i === 0 ? 5 : 3,
+              opacity: i === 0 ? 0.9 : 0.5,
+            },
+          }).addTo(map);
+          mapLayers.push(routeLine);
+          routeLayersMap[r.name] = { line: routeLine, color, index: i };
+          routeLine.getBounds().pad(0.05);
+          bounds.extend(routeLine.getBounds());
+        }
+
+        // Marqueur cabinet
+        const cabMarker = L.marker([r.lat, r.lon], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="background:${color};color:white;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)">${i + 1}</div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          }),
+        }).addTo(map).bindPopup(`<b>${r.name}</b><br>${formatDistance(r.distance)} — ${formatDuration(r.duration)}`);
+        mapLayers.push(cabMarker);
+        bounds.extend([r.lat, r.lon]);
+      });
+
+      map.fitBounds(bounds, { padding: [30, 30] });
+
+      // Liste des résultats
+      resultsDiv.innerHTML = "";
+      results.forEach((r, i) => {
+        const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+        const card = document.createElement("div");
+        card.className = "result-card" + (i === 0 ? " closest" : "");
+        card.innerHTML = `
+          <div class="name">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px"></span>
+            ${r.name}${i === 0 ? '<span class="badge">Le plus proche</span>' : ""}
+          </div>
+          <div class="distance">${formatDistance(r.distance)}</div>
+          <div class="duration">${formatDuration(r.duration)} en voiture</div>
+        `;
+        // Survol → mettre en avant le tracé
+        card.addEventListener("mouseenter", () => highlightRoute(r.name, routeLayersMap));
+        card.addEventListener("mouseleave", () => resetRoutes(results, routeLayersMap));
+        resultsDiv.appendChild(card);
+      });
+      resultsDiv.style.display = "block";
+    }
+
+    function highlightRoute(name, routeLayersMap) {
+      Object.entries(routeLayersMap).forEach(([n, { line, index }]) => {
+        line.setStyle({ weight: n === name ? 6 : 2, opacity: n === name ? 1 : 0.2 });
+      });
+    }
+
+    function resetRoutes(results, routeLayersMap) {
+      Object.entries(routeLayersMap).forEach(([n, { line, index }]) => {
+        line.setStyle({ weight: index === 0 ? 5 : 3, opacity: index === 0 ? 0.9 : 0.5 });
+      });
+    }
+
+    // Fermer les suggestions en cliquant ailleurs
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".search-container")) suggestionsList.style.display = "none";
+    });
+  </script>
+</body>
+</html>
