@@ -120,12 +120,14 @@
   <div id="results"></div>
 
   <script>
-    const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad"];
+    const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad", "#27ae60", "#c0392b"];
 
     const CABINETS = [
-      { name: "Cabinet Infirmier Montbron", lat: 45.65982400601837, lon: 0.5039343458780332 },
+      { name: "Chazelles", lat: 45.647070, lon: 0.371071 },
       { name: "Géraldine", lat: 45.57327615031734, lon: 0.5580555368320286 },
-      { name: "Richard Jacqueline", lat: 45.52428432170033, lon: 0.6633227352942614 },
+      { name: "Vouzan", lat: 45.6025979, lon: 0.3570027 },
+      { name: "Villebois Lavalette", lat: 45.480848, lon: 0.273783 },
+      { name: "Dignac", lat: 45.55621200352211, lon: 0.2771556694711164 },
     ];
 
     const addressInput = document.getElementById("address");
@@ -187,13 +189,31 @@
       await computeRoutes(lon, lat);
     }
 
+    const MAX_ROUTING_CALLS = 3;
+
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      const toRad = x => x * Math.PI / 180;
+      const R = 6371000;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
     async function computeRoutes(startLon, startLat) {
       loadingDiv.style.display = "block";
       resultsDiv.style.display = "none";
       errorDiv.style.display = "none";
 
       try {
-        const promises = CABINETS.map(cab =>
+        // Pré-tri par distance à vol d'oiseau, on ne route que les N plus proches
+        const sorted = CABINETS
+          .map(cab => ({ ...cab, crowDist: haversineDistance(startLat, startLon, cab.lat, cab.lon) }))
+          .sort((a, b) => a.crowDist - b.crowDist);
+
+        const closest = sorted.slice(0, MAX_ROUTING_CALLS);
+
+        const promises = closest.map(cab =>
           fetch("https://data.geopf.fr/navigation/itineraire", {
             method: "POST",
             headers: { "Accept": "application/json", "Content-Type": "application/json" },
