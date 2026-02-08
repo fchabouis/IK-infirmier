@@ -142,6 +142,8 @@
     let map = null;
     let mapLayers = [];
     let debounceTimer;
+    let currentFeatures = [];
+    let selectedIndex = -1;
 
     function initMap() {
       if (map) return;
@@ -161,21 +163,52 @@
     // Autocomplétion BAN
     addressInput.addEventListener("input", () => {
       clearTimeout(debounceTimer);
+      selectedIndex = -1;
       const q = addressInput.value.trim();
       if (q.length < 3) { suggestionsList.style.display = "none"; return; }
       debounceTimer = setTimeout(() => fetchSuggestions(q), 300);
     });
+
+    addressInput.addEventListener("keydown", (e) => {
+      const items = suggestionsList.querySelectorAll("li");
+      if (!items.length || suggestionsList.style.display === "none") return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+        updateSelection(items);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        updateSelection(items);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (selectedIndex >= 0) selectAddress(currentFeatures[selectedIndex]);
+      }
+    });
+
+    function updateSelection(items) {
+      items.forEach((li, i) => {
+        li.style.background = i === selectedIndex ? "#f0f4ff" : "";
+      });
+    }
 
     async function fetchSuggestions(q) {
       try {
         const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`);
         const data = await res.json();
         suggestionsList.innerHTML = "";
+        currentFeatures = data.features;
+        selectedIndex = -1;
         if (!data.features.length) { suggestionsList.style.display = "none"; return; }
-        data.features.forEach(f => {
+        data.features.forEach((f, i) => {
           const li = document.createElement("li");
           li.textContent = f.properties.label;
           li.addEventListener("click", () => selectAddress(f));
+          li.addEventListener("mouseenter", () => {
+            selectedIndex = i;
+            updateSelection(suggestionsList.querySelectorAll("li"));
+          });
           suggestionsList.appendChild(li);
         });
         suggestionsList.style.display = "block";
