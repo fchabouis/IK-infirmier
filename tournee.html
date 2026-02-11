@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tournée infirmier</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #333;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 24px; }
+    h2 { font-size: 1.05rem; margin: 24px 0 12px; color: #555; }
+    .form-group { margin-bottom: 10px; }
+    .form-group label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 4px; }
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      outline: none;
+    }
+    input:focus { border-color: #4a90d9; }
+    .search-container { position: relative; }
+    .suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      list-style: none;
+      z-index: 1000;
+      display: none;
+    }
+    .suggestions li { padding: 10px 16px; cursor: pointer; }
+    .suggestions li:hover, .suggestions li.active { background: #f0f4ff; }
+    button {
+      padding: 10px 20px;
+      font-size: 0.95rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn-primary { background: #4a90d9; color: white; }
+    .btn-primary:hover { background: #3a7bc8; }
+    .btn-primary:disabled { background: #b0c4de; cursor: default; }
+    .btn-add { background: #27ae60; color: white; }
+    .btn-add:hover { background: #219a52; }
+    .btn-add:disabled { background: #a3d9b1; cursor: default; }
+    .btn-danger { background: none; color: #c0392b; border: none; cursor: pointer; font-size: 1.2rem; padding: 4px 8px; }
+    .patient-list { margin: 12px 0; }
+    .patient-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #fafafa;
+    }
+    .patient-item .info { flex: 1; }
+    .patient-item .name { font-weight: 600; }
+    .patient-item .details { font-size: 0.85rem; color: #666; margin-top: 2px; }
+    #map {
+      width: 100%;
+      height: 400px;
+      margin-top: 20px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      display: none;
+    }
+    #loading { display: none; margin-top: 16px; color: #888; }
+    #error { display: none; margin-top: 16px; color: #c0392b; }
+    .tour-step { display: flex; margin-bottom: 0; }
+    .step-timeline {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 40px;
+      flex-shrink: 0;
+    }
+    .step-dot {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+    .step-line { width: 2px; flex: 1; background: #ddd; min-height: 20px; }
+    .step-content {
+      flex: 1;
+      padding: 10px 16px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      margin-left: 8px;
+    }
+    .step-content .time { font-weight: 700; color: #4a90d9; }
+    .step-content .patient-name { font-weight: 600; margin-left: 8px; }
+    .step-content .step-details { font-size: 0.85rem; color: #666; margin-top: 4px; }
+    .step-content.warning { border-color: #e67e22; background: #fef9f0; }
+    .step-content .warning-text { color: #e67e22; font-weight: 600; font-size: 0.85rem; }
+    .step-content.start { background: #f0f4ff; border-color: #4a90d9; }
+    .total-summary {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f0f4ff;
+      border-radius: 8px;
+      border: 1px solid #4a90d9;
+    }
+    .total-summary strong { color: #4a90d9; }
+    .empty-msg { color: #999; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>Optimisation de tournée</h1>
+
+  <h2>Point de départ</h2>
+  <div class="search-container">
+    <input type="text" id="start-address" placeholder="Adresse de départ (cabinet, domicile...)" autocomplete="off">
+    <ul class="suggestions" id="start-suggestions"></ul>
+  </div>
+  <div class="form-group" style="margin-top: 8px;">
+    <label>Heure de départ</label>
+    <input type="time" id="departure-time" value="07:30">
+  </div>
+
+  <h2>Ajouter un patient</h2>
+  <div class="form-group">
+    <label>Nom du patient</label>
+    <input type="text" id="patient-name" placeholder="Ex: Mme Dupont">
+  </div>
+  <div class="form-group search-container">
+    <label>Adresse</label>
+    <input type="text" id="patient-address" placeholder="Saisissez une adresse..." autocomplete="off">
+    <ul class="suggestions" id="patient-suggestions"></ul>
+  </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Disponible à partir de</label>
+      <input type="time" id="window-start" value="08:00">
+    </div>
+    <div class="form-group">
+      <label>Disponible jusqu'à</label>
+      <input type="time" id="window-end" value="12:00">
+    </div>
+  </div>
+  <button class="btn-add" id="add-patient-btn" disabled>Ajouter le patient</button>
+
+  <h2>Patients du jour (<span id="patient-count">0</span>)</h2>
+  <div class="patient-list" id="patient-list">
+    <p class="empty-msg">Aucun patient ajouté.</p>
+  </div>
+
+  <button class="btn-primary" id="optimize-btn" disabled style="width:100%; margin-top:8px;">
+    Optimiser la tournée
+  </button>
+
+  <div id="loading">Calcul de la tournée en cours...</div>
+  <div id="error"></div>
+  <div id="map"></div>
+  <div id="results"></div>
+
+  <script>
+    const DUREE_SOIN = 10;
+    const VITESSE_FACTEUR = 600;
+    const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad", "#27ae60", "#c0392b", "#16a085", "#d35400", "#2c3e50", "#f39c12", "#1abc9c"];
+
+    let patients = [];
+    let startPoint = null;
+    let selectedPatientCoords = null;
+    let map = null;
+    let mapLayers = [];
+
+    const $ = id => document.getElementById(id);
+    const startInput = $("start-address");
+    const startSuggestions = $("start-suggestions");
+    const patientNameInput = $("patient-name");
+    const patientAddressInput = $("patient-address");
+    const patientSuggestions = $("patient-suggestions");
+    const addBtn = $("add-patient-btn");
+    const patientListEl = $("patient-list");
+    const patientCountEl = $("patient-count");
+    const optimizeBtn = $("optimize-btn");
+    const loadingDiv = $("loading");
+    const errorDiv = $("error");
+    const mapDiv = $("map");
+    const resultsDiv = $("results");
+
+    // --- Autocomplete réutilisable ---
+    function setupAutocomplete(input, suggestionsEl, onSelect) {
+      let timer, features = [], idx = -1;
+
+      input.addEventListener("input", () => {
+        clearTimeout(timer);
+        idx = -1;
+        const q = input.value.trim();
+        if (q.length < 3) { suggestionsEl.style.display = "none"; return; }
+        timer = setTimeout(async () => {
+          try {
+            const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`);
+            const data = await res.json();
+            features = data.features;
+            suggestionsEl.innerHTML = "";
+            idx = -1;
+            if (!features.length) { suggestionsEl.style.display = "none"; return; }
+            features.forEach((f, i) => {
+              const li = document.createElement("li");
+              li.textContent = f.properties.label;
+              li.addEventListener("click", () => pick(f));
+              li.addEventListener("mouseenter", () => { idx = i; highlight(); });
+              suggestionsEl.appendChild(li);
+            });
+            suggestionsEl.style.display = "block";
+          } catch { suggestionsEl.style.display = "none"; }
+        }, 300);
+      });
+
+      input.addEventListener("keydown", (e) => {
+        const items = suggestionsEl.querySelectorAll("li");
+        if (!items.length || suggestionsEl.style.display === "none") return;
+        if (e.key === "ArrowDown") { e.preventDefault(); idx = Math.min(idx + 1, items.length - 1); highlight(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); idx = Math.max(idx - 1, 0); highlight(); }
+        else if (e.key === "Enter") { e.preventDefault(); if (idx >= 0 && features[idx]) pick(features[idx]); }
+      });
+
+      function highlight() {
+        suggestionsEl.querySelectorAll("li").forEach((li, i) => {
+          li.style.background = i === idx ? "#f0f4ff" : "";
+        });
+      }
+      function pick(f) {
+        input.value = f.properties.label;
+        suggestionsEl.style.display = "none";
+        const [lon, lat] = f.geometry.coordinates;
+        onSelect({ label: f.properties.label, lat, lon });
+      }
+    }
+
+    setupAutocomplete(startInput, startSuggestions, (r) => { startPoint = r; updateButtons(); });
+    setupAutocomplete(patientAddressInput, patientSuggestions, (r) => { selectedPatientCoords = r; updateButtons(); });
+
+    patientAddressInput.addEventListener("input", () => { selectedPatientCoords = null; updateButtons(); });
+    startInput.addEventListener("input", () => { startPoint = null; updateButtons(); });
+    patientNameInput.addEventListener("input", updateButtons);
+
+    function updateButtons() {
+      addBtn.disabled = !(patientNameInput.value.trim() && selectedPatientCoords);
+      optimizeBtn.disabled = !(startPoint && patients.length >= 1);
+    }
+
+    // --- Gestion patients ---
+    addBtn.addEventListener("click", () => {
+      if (!selectedPatientCoords || !patientNameInput.value.trim()) return;
+      patients.push({
+        name: patientNameInput.value.trim(),
+        label: selectedPatientCoords.label,
+        lat: selectedPatientCoords.lat,
+        lon: selectedPatientCoords.lon,
+        windowStart: $("window-start").value,
+        windowEnd: $("window-end").value,
+      });
+      patientNameInput.value = "";
+      patientAddressInput.value = "";
+      selectedPatientCoords = null;
+      addBtn.disabled = true;
+      patientNameInput.focus();
+      renderPatients();
+      updateButtons();
+    });
+
+    function renderPatients() {
+      patientCountEl.textContent = patients.length;
+      if (!patients.length) {
+        patientListEl.innerHTML = '<p class="empty-msg">Aucun patient ajouté.</p>';
+        return;
+      }
+      patientListEl.innerHTML = "";
+      patients.forEach((p, i) => {
+        const div = document.createElement("div");
+        div.className = "patient-item";
+        div.innerHTML = `<div class="info"><div class="name">${p.name}</div><div class="details">${p.label} — ${p.windowStart} à ${p.windowEnd}</div></div>`;
+        const btn = document.createElement("button");
+        btn.className = "btn-danger";
+        btn.textContent = "\u00d7";
+        btn.title = "Supprimer";
+        btn.addEventListener("click", () => { patients.splice(i, 1); renderPatients(); updateButtons(); });
+        div.appendChild(btn);
+        patientListEl.appendChild(div);
+      });
+    }
+
+    // --- Calculs ---
+    function haversine(lat1, lon1, lat2, lon2) {
+      const toRad = x => x * Math.PI / 180;
+      const R = 6371000;
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function estimateMinutes(lat1, lon1, lat2, lon2) {
+      return haversine(lat1, lon1, lat2, lon2) / VITESSE_FACTEUR;
+    }
+
+    function timeToMin(t) { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+    function minToTime(m) { return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`; }
+
+    // --- Nearest Neighbor ---
+    function nearestNeighbor(pts, start, departMin) {
+      const n = pts.length;
+      const visited = new Array(n).fill(false);
+      const tour = [];
+      let cLat = start.lat, cLon = start.lon, cTime = departMin;
+
+      for (let step = 0; step < n; step++) {
+        let bestIdx = -1, bestScore = Infinity;
+
+        for (let i = 0; i < n; i++) {
+          if (visited[i]) continue;
+          const travel = estimateMinutes(cLat, cLon, pts[i].lat, pts[i].lon);
+          const arrival = cTime + travel;
+          if (arrival > timeToMin(pts[i].windowEnd)) continue;
+          // Score = temps de trajet + marge restante : favorise les patients proches ET urgents
+          const slack = timeToMin(pts[i].windowEnd) - arrival;
+          const score = travel + slack;
+          if (score < bestScore) { bestScore = score; bestIdx = i; }
+        }
+
+        if (bestIdx === -1) {
+          let earliest = Infinity;
+          for (let i = 0; i < n; i++) {
+            if (visited[i]) continue;
+            const ws = timeToMin(pts[i].windowStart);
+            if (ws < earliest) { earliest = ws; bestIdx = i; }
+          }
+        }
+        if (bestIdx === -1) break;
+
+        visited[bestIdx] = true;
+        const travel = estimateMinutes(cLat, cLon, pts[bestIdx].lat, pts[bestIdx].lon);
+        const arrival = cTime + travel;
+        const effStart = Math.max(arrival, timeToMin(pts[bestIdx].windowStart));
+
+        tour.push({ ...pts[bestIdx], travelMinutes: travel, arrivalTime: arrival, startTime: effStart, departureTime: effStart + DUREE_SOIN });
+        cLat = pts[bestIdx].lat; cLon = pts[bestIdx].lon; cTime = effStart + DUREE_SOIN;
+      }
+      return tour;
+    }
+
+    // --- 2-opt ---
+    function tourDist(order, start) {
+      let d = 0, pLat = start.lat, pLon = start.lon;
+      for (const p of order) { d += haversine(pLat, pLon, p.lat, p.lon); pLat = p.lat; pLon = p.lon; }
+      return d;
+    }
+
+    function recompute(order, start, departMin) {
+      const tour = [];
+      let cLat = start.lat, cLon = start.lon, cTime = departMin;
+      for (const p of order) {
+        const travel = estimateMinutes(cLat, cLon, p.lat, p.lon);
+        const arrival = cTime + travel;
+        const effStart = Math.max(arrival, timeToMin(p.windowStart));
+        tour.push({ ...p, travelMinutes: travel, arrivalTime: arrival, startTime: effStart, departureTime: effStart + DUREE_SOIN });
+        cLat = p.lat; cLon = p.lon; cTime = effStart + DUREE_SOIN;
+      }
+      return tour;
+    }
+
+    function isFeasible(tour) {
+      return tour.every(p => p.arrivalTime <= timeToMin(p.windowEnd));
+    }
+
+    function tourCost(order, start, departMin) {
+      const tour = recompute(order, start, departMin);
+      let penalty = 0;
+      for (const p of tour) {
+        const late = Math.max(0, p.arrivalTime - timeToMin(p.windowEnd));
+        penalty += late;
+      }
+      // 1 minute de retard = 10 km de pénalité → le 2-opt préfère fortement les tournées sans retard
+      return tourDist(order, start) + penalty * 10000;
+    }
+
+    function twoOpt(initial, start, departMin) {
+      let best = initial.map(p => ({ name: p.name, label: p.label, lat: p.lat, lon: p.lon, windowStart: p.windowStart, windowEnd: p.windowEnd }));
+      let bestCost = tourCost(best, start, departMin);
+      let improved = true;
+
+      while (improved) {
+        improved = false;
+        for (let i = 0; i < best.length - 1; i++) {
+          for (let j = i + 2; j < best.length; j++) {
+            const candidate = [...best.slice(0, i + 1), ...best.slice(i + 1, j + 1).reverse(), ...best.slice(j + 1)];
+            const newCost = tourCost(candidate, start, departMin);
+            if (newCost < bestCost) {
+              best = candidate;
+              bestCost = newCost;
+              improved = true;
+            }
+          }
+        }
+      }
+      return recompute(best, start, departMin);
+    }
+
+    // --- API routage ---
+    async function fetchRoute(fromLat, fromLon, toLat, toLon) {
+      const res = await fetch("https://data.geopf.fr/navigation/itineraire", {
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resource: "bdtopo-osrm",
+          start: `${fromLon},${fromLat}`,
+          end: `${toLon},${toLat}`,
+          profile: "car",
+          getSteps: false,
+          getBbox: false,
+          geometryFormat: "geojson",
+        }),
+      });
+      return res.json();
+    }
+
+    // --- Carte ---
+    function initMap() {
+      if (map) return;
+      mapDiv.style.display = "block";
+      map = L.map("map");
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 18,
+      }).addTo(map);
+    }
+
+    function clearMap() { mapLayers.forEach(l => map.removeLayer(l)); mapLayers = []; }
+
+    function formatDist(m) { return m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m"; }
+    function formatDur(s) {
+      const mins = Math.round(s / 60);
+      if (mins < 60) return mins + " min";
+      return Math.floor(mins / 60) + "h" + String(mins % 60).padStart(2, "0");
+    }
+
+    // --- Lancer l'optimisation ---
+    optimizeBtn.addEventListener("click", async () => {
+      if (!startPoint || patients.length < 1) return;
+
+      loadingDiv.style.display = "block";
+      resultsDiv.innerHTML = "";
+      errorDiv.style.display = "none";
+      optimizeBtn.disabled = true;
+
+      try {
+        const departMin = timeToMin($("departure-time").value);
+
+        // 1. Nearest neighbor
+        const initial = nearestNeighbor([...patients], startPoint, departMin);
+
+        // 2. 2-opt
+        const optimized = twoOpt(initial, startPoint, departMin);
+
+        // 3. Routes réelles (en parallèle) + retour au cabinet
+        const routePromises = [];
+        let pLat = startPoint.lat, pLon = startPoint.lon;
+        for (const p of optimized) {
+          routePromises.push(fetchRoute(pLat, pLon, p.lat, p.lon));
+          pLat = p.lat; pLon = p.lon;
+        }
+        // Trajet retour : dernier patient → point de départ
+        routePromises.push(fetchRoute(pLat, pLon, startPoint.lat, startPoint.lon));
+        const routes = await Promise.all(routePromises);
+
+        // 4. Recalculer les horaires avec les durées réelles
+        const legs = [];
+        let currentTime = departMin, totalDist = 0;
+        for (let i = 0; i < optimized.length; i++) {
+          const realMin = routes[i].duration / 60;
+          const arrival = currentTime + realMin;
+          const winStart = timeToMin(optimized[i].windowStart);
+          const effStart = Math.max(arrival, winStart);
+          legs.push({
+            ...optimized[i],
+            travelMinutes: realMin,
+            arrivalTime: arrival,
+            startTime: effStart,
+            departureTime: effStart + DUREE_SOIN,
+            realDistance: routes[i].distance,
+            realDuration: routes[i].duration,
+            geometry: routes[i].geometry,
+          });
+          currentTime = effStart + DUREE_SOIN;
+          totalDist += routes[i].distance;
+        }
+
+        // Trajet retour
+        const retour = routes[routes.length - 1];
+        totalDist += retour.distance;
+
+        displayTour(legs, startPoint, departMin, totalDist, retour);
+      } catch (e) {
+        errorDiv.textContent = "Erreur lors du calcul. Veuillez r\u00e9essayer.";
+        errorDiv.style.display = "block";
+      } finally {
+        loadingDiv.style.display = "none";
+        optimizeBtn.disabled = false;
+        updateButtons();
+      }
+    });
+
+    // --- Affichage résultats ---
+    function displayTour(legs, start, departMin, totalDist, retour) {
+      initMap();
+      clearMap();
+      const bounds = L.latLngBounds();
+
+      // Marqueur départ
+      const sm = L.marker([start.lat, start.lon], {
+        icon: L.divIcon({
+          className: "",
+          html: '<div style="background:#e74c3c;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>',
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        }),
+      }).addTo(map).bindPopup("<b>D\u00e9part</b>");
+      mapLayers.push(sm);
+      bounds.extend([start.lat, start.lon]);
+
+      legs.forEach((leg, i) => {
+        const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+        if (leg.geometry) {
+          const line = L.geoJSON(leg.geometry, { style: { color, weight: 4, opacity: 0.8 } }).addTo(map);
+          mapLayers.push(line);
+          bounds.extend(line.getBounds());
+        }
+        const mk = L.marker([leg.lat, leg.lon], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="background:${color};color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)">${i + 1}</div>`,
+            iconSize: [26, 26], iconAnchor: [13, 13],
+          }),
+        }).addTo(map).bindPopup(`<b>${i + 1}. ${leg.name}</b><br>${minToTime(leg.startTime)}`);
+        mapLayers.push(mk);
+        bounds.extend([leg.lat, leg.lon]);
+      });
+
+      // Tracé retour au cabinet
+      if (retour && retour.geometry) {
+        const line = L.geoJSON(retour.geometry, { style: { color: "#e74c3c", weight: 4, opacity: 0.6, dashArray: "8 6" } }).addTo(map);
+        mapLayers.push(line);
+        bounds.extend(line.getBounds());
+      }
+
+      map.fitBounds(bounds, { padding: [30, 30] });
+
+      // Timeline
+      let html = `
+        <div class="tour-step">
+          <div class="step-timeline"><div class="step-dot" style="background:#e74c3c">D</div><div class="step-line"></div></div>
+          <div class="step-content start">
+            <span class="time">${minToTime(departMin)}</span>
+            <span class="patient-name">D\u00e9part \u2014 ${start.label}</span>
+          </div>
+        </div>`;
+
+      legs.forEach((leg, i) => {
+        const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+        const late = leg.arrivalTime > timeToMin(leg.windowEnd);
+        const waiting = leg.startTime - leg.arrivalTime > 1;
+
+        let details = `${formatDist(leg.realDistance)} \u2014 ${formatDur(leg.realDuration)} de trajet`;
+        if (waiting) details += ` \u2014 attente ${Math.round(leg.startTime - leg.arrivalTime)} min`;
+
+        html += `
+          <div class="tour-step">
+            <div class="step-timeline"><div class="step-dot" style="background:${color}">${i + 1}</div><div class="step-line"></div></div>
+            <div class="step-content${late ? " warning" : ""}">
+              <span class="time">${minToTime(leg.startTime)}</span>
+              <span class="patient-name">${leg.name}</span>
+              ${late ? `<div class="warning-text">Arriv\u00e9e \u00e0 ${minToTime(leg.arrivalTime)} \u2014 cr\u00e9neau d\u00e9pass\u00e9 (fin ${leg.windowEnd})</div>` : ""}
+              <div class="step-details">${details}<br>Cr\u00e9neau : ${leg.windowStart} \u2013 ${leg.windowEnd} \u2014 D\u00e9part \u00e0 ${minToTime(leg.departureTime)}</div>
+            </div>
+          </div>`;
+      });
+
+      // Étape retour au cabinet
+      const last = legs[legs.length - 1];
+      const retourMin = retour.duration / 60;
+      const retourArrival = last.departureTime + retourMin;
+
+      html += `
+        <div class="tour-step">
+          <div class="step-timeline"><div class="step-dot" style="background:#e74c3c">R</div></div>
+          <div class="step-content start">
+            <span class="time">${minToTime(retourArrival)}</span>
+            <span class="patient-name">Retour \u2014 ${start.label}</span>
+            <div class="step-details">${formatDist(retour.distance)} \u2014 ${formatDur(retour.duration)} de trajet</div>
+          </div>
+        </div>`;
+
+      const totalMin = retourArrival - departMin;
+      html += `
+        <div class="total-summary">
+          <strong>R\u00e9sum\u00e9 :</strong> ${legs.length} patients \u2014 ${formatDist(totalDist)} \u2014
+          Retour au cabinet \u00e0 <strong>${minToTime(retourArrival)}</strong>
+          (dur\u00e9e totale : ${Math.floor(totalMin / 60)}h${String(Math.round(totalMin % 60)).padStart(2, "0")})
+        </div>`;
+
+      resultsDiv.innerHTML = html;
+    }
+
+    // Fermer suggestions
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".search-container")) {
+        startSuggestions.style.display = "none";
+        patientSuggestions.style.display = "none";
+      }
+    });
+  </script>
+</body>
+</html>
