@@ -230,6 +230,7 @@
       const [lon, lat] = feature.geometry.coordinates;
       addressInput.value = feature.properties.label;
       suggestionsList.style.display = "none";
+      window.goatcounter?.count({ path: "recherche/" + feature.properties.label, title: "Recherche adresse", event: true });
       await computeRoutes(lon, lat);
     }
 
