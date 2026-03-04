@@ -14,3 +14,12 @@ export async function fetchNearby(lat, lng, limit = 10) {
   });
   return data;
 }
+
+export async function addInfirmary({ latitude, longitude, prenom, nom }) {
+  const position = `SRID=4326;POINT(${longitude} ${latitude})`;
+  const { data, error } = await supabase
+    .from("infirmary")
+    .insert([{ position, prenom, nom }]);
+  if (error) throw error;
+  return data;
+}
