@@ -113,6 +113,93 @@
       height: 4px;
       border-radius: 2px;
     }
+    #add-cabinet-btn {
+      padding: 8px 16px;
+      background: #27ae60;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #add-cabinet-btn:hover { background: #219a52; }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h2 { font-size: 1.15rem; margin-bottom: 16px; }
+    .modal label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 4px;
+      margin-top: 12px;
+    }
+    .modal label:first-of-type { margin-top: 0; }
+    .modal .search-container { margin-bottom: 0; }
+    #modal-map {
+      width: 100%;
+      height: 250px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      margin-top: 12px;
+      display: none;
+    }
+    .modal-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .modal-buttons button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-cancel {
+      background: white;
+      border: 2px solid #ddd;
+      color: #555;
+    }
+    .btn-cancel:hover { background: #f5f5f5; }
+    .btn-submit {
+      background: #4a90d9;
+      border: none;
+      color: white;
+    }
+    .btn-submit:hover { background: #3a7bc8; }
+    .btn-submit:disabled { background: #a0c4e8; cursor: not-allowed; }
+    .modal-success {
+      color: #27ae60;
+      font-weight: 600;
+      margin-top: 12px;
+      display: none;
+    }
+    .modal-error {
+      color: #c0392b;
+      font-weight: 600;
+      margin-top: 12px;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -126,10 +213,37 @@
   <div id="loading">Calcul des itinéraires en cours...</div>
   <div id="error"></div>
   <div id="map"></div>
+  <div id="add-cabinet-container" style="display:none; text-align:right; margin-top:12px;">
+    <button id="add-cabinet-btn" style="display:inline-block;">Ajouter un cabinet manquant</button>
+  </div>
   <div id="results"></div>
 
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h2>Ajouter un cabinet infirmier</h2>
+      <label for="modal-address">Adresse *</label>
+      <div class="search-container">
+        <input type="text" id="modal-address" placeholder="Saisissez l'adresse du cabinet..." autocomplete="off">
+        <ul class="suggestions" id="modal-suggestions"></ul>
+      </div>
+      <input type="hidden" id="modal-lat">
+      <input type="hidden" id="modal-lng">
+      <div id="modal-map"></div>
+      <label for="modal-prenom">Pr&eacute;nom (optionnel)</label>
+      <input type="text" id="modal-prenom" placeholder="Pr&eacute;nom">
+      <label for="modal-nom">Nom (optionnel)</label>
+      <input type="text" id="modal-nom" placeholder="Nom">
+      <div class="modal-success" id="modal-success">Cabinet ajout&eacute; avec succ&egrave;s !</div>
+      <div class="modal-error" id="modal-error"></div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="modal-cancel">Annuler</button>
+        <button class="btn-submit" id="modal-submit" disabled>Valider</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
-    import { fetchNearby } from './fetchInfirmaries.js';
+    import { fetchNearby, addInfirmary } from './nurses_api.js';
 
     const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad", "#27ae60", "#c0392b"];
 
@@ -145,6 +259,8 @@ const addressInput = document.getElementById("address");
     let debounceTimer;
     let currentFeatures = [];
     let selectedIndex = -1;
+    let lastSearchLon = null;
+    let lastSearchLat = null;
 
     function initMap() {
       if (map) return;
@@ -222,6 +338,8 @@ const addressInput = document.getElementById("address");
       const [lon, lat] = feature.geometry.coordinates;
       addressInput.value = feature.properties.label;
       suggestionsList.style.display = "none";
+      lastSearchLon = lon;
+      lastSearchLat = lat;
       window.goatcounter?.count({ path: "recherche/" + feature.properties.label, title: "Recherche adresse", event: true });
       await computeRoutes(lon, lat);
     }
@@ -252,7 +370,7 @@ const addressInput = document.getElementById("address");
           })
           .then(r => r.json())
           .then(data => ({
-            name: `${inf.prenom} ${inf.nom}`,
+            name: (inf.prenom || inf.nom) ? `${inf.prenom ?? ''} ${inf.nom ?? ''}`.trim() : 'Nom inconnu',
             lat: inf.latitude,
             lon: inf.longitude,
             distance: data.distance,
@@ -360,6 +478,7 @@ const addressInput = document.getElementById("address");
         resultsDiv.appendChild(card);
       });
       resultsDiv.style.display = "block";
+      document.getElementById("add-cabinet-container").style.display = "block";
     }
 
     function highlightRoute(name, routeLayersMap) {
@@ -376,7 +495,155 @@ const addressInput = document.getElementById("address");
 
     // Fermer les suggestions en cliquant ailleurs
     document.addEventListener("click", (e) => {
-      if (!e.target.closest(".search-container")) suggestionsList.style.display = "none";
+      if (!e.target.closest(".search-container")) {
+        suggestionsList.style.display = "none";
+        modalSuggestions.style.display = "none";
+      }
+    });
+
+    // --- Modal : Ajouter un cabinet ---
+    const addBtn = document.getElementById("add-cabinet-btn");
+    const modalOverlay = document.getElementById("modal-overlay");
+    const modalAddress = document.getElementById("modal-address");
+    const modalSuggestions = document.getElementById("modal-suggestions");
+    const modalLatInput = document.getElementById("modal-lat");
+    const modalLngInput = document.getElementById("modal-lng");
+    const modalMapDiv = document.getElementById("modal-map");
+    const modalPrenom = document.getElementById("modal-prenom");
+    const modalNom = document.getElementById("modal-nom");
+    const modalSubmit = document.getElementById("modal-submit");
+    const modalCancel = document.getElementById("modal-cancel");
+    const modalSuccess = document.getElementById("modal-success");
+    const modalError = document.getElementById("modal-error");
+
+    let modalMap = null;
+    let modalMarker = null;
+    let modalDebounce;
+    let modalFeatures = [];
+    let modalSelectedIndex = -1;
+
+    addBtn.addEventListener("click", () => {
+      modalOverlay.classList.add("active");
+      modalAddress.value = "";
+      modalLatInput.value = "";
+      modalLngInput.value = "";
+      modalPrenom.value = "";
+      modalNom.value = "";
+      modalSubmit.disabled = true;
+      modalMapDiv.style.display = "none";
+      modalSuccess.style.display = "none";
+      modalError.style.display = "none";
+      modalSuggestions.style.display = "none";
+      setTimeout(() => modalAddress.focus(), 100);
+    });
+
+    modalCancel.addEventListener("click", () => {
+      modalOverlay.classList.remove("active");
+    });
+
+    modalOverlay.addEventListener("click", (e) => {
+      if (e.target === modalOverlay) modalOverlay.classList.remove("active");
+    });
+
+    // Autocomplétion dans la modal
+    modalAddress.addEventListener("input", () => {
+      clearTimeout(modalDebounce);
+      modalSelectedIndex = -1;
+      const q = modalAddress.value.trim();
+      if (q.length < 3) { modalSuggestions.style.display = "none"; return; }
+      modalDebounce = setTimeout(() => fetchModalSuggestions(q), 300);
+    });
+
+    modalAddress.addEventListener("keydown", (e) => {
+      const items = modalSuggestions.querySelectorAll("li");
+      if (!items.length || modalSuggestions.style.display === "none") return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        modalSelectedIndex = Math.min(modalSelectedIndex + 1, items.length - 1);
+        items.forEach((li, i) => li.style.background = i === modalSelectedIndex ? "#f0f4ff" : "");
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        modalSelectedIndex = Math.max(modalSelectedIndex - 1, 0);
+        items.forEach((li, i) => li.style.background = i === modalSelectedIndex ? "#f0f4ff" : "");
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (modalSelectedIndex >= 0) selectModalAddress(modalFeatures[modalSelectedIndex]);
+      }
+    });
+
+    async function fetchModalSuggestions(q) {
+      try {
+        const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`);
+        const data = await res.json();
+        modalSuggestions.innerHTML = "";
+        modalFeatures = data.features;
+        modalSelectedIndex = -1;
+        if (!data.features.length) { modalSuggestions.style.display = "none"; return; }
+        data.features.forEach((f, i) => {
+          const li = document.createElement("li");
+          li.textContent = f.properties.label;
+          li.addEventListener("click", () => selectModalAddress(f));
+          li.addEventListener("mouseenter", () => {
+            modalSelectedIndex = i;
+            modalSuggestions.querySelectorAll("li").forEach((el, j) => el.style.background = j === i ? "#f0f4ff" : "");
+          });
+          modalSuggestions.appendChild(li);
+        });
+        modalSuggestions.style.display = "block";
+      } catch (e) {
+        modalSuggestions.style.display = "none";
+      }
+    }
+
+    function selectModalAddress(feature) {
+      const [lon, lat] = feature.geometry.coordinates;
+      modalAddress.value = feature.properties.label;
+      modalSuggestions.style.display = "none";
+      modalLatInput.value = lat;
+      modalLngInput.value = lon;
+      modalSubmit.disabled = false;
+
+      // Afficher mini carte
+      modalMapDiv.style.display = "block";
+      if (!modalMap) {
+        modalMap = L.map("modal-map");
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          maxZoom: 18,
+        }).addTo(modalMap);
+      }
+      if (modalMarker) modalMap.removeLayer(modalMarker);
+      modalMarker = L.marker([lat, lon]).addTo(modalMap);
+      modalMap.setView([lat, lon], 16);
+      setTimeout(() => modalMap.invalidateSize(), 100);
+    }
+
+    modalSubmit.addEventListener("click", async () => {
+      modalSubmit.disabled = true;
+      modalError.style.display = "none";
+      modalSuccess.style.display = "none";
+      try {
+        await addInfirmary({
+          latitude: parseFloat(modalLatInput.value),
+          longitude: parseFloat(modalLngInput.value),
+          prenom: modalPrenom.value.trim() || null,
+          nom: modalNom.value.trim() || null,
+        });
+        modalOverlay.classList.remove("active");
+        addBtn.textContent = "Cabinet ajouté avec succès !";
+        addBtn.style.background = "#27ae60";
+        setTimeout(() => {
+          addBtn.textContent = "Ajouter un cabinet manquant";
+          addBtn.style.background = "";
+        }, 3000);
+        if (lastSearchLon !== null && lastSearchLat !== null) {
+          await computeRoutes(lastSearchLon, lastSearchLat);
+        }
+      } catch (e) {
+        modalError.textContent = "Erreur lors de l'ajout. Veuillez réessayer.";
+        modalError.style.display = "block";
+        modalSubmit.disabled = false;
+      }
     });
   </script>
 </body>
