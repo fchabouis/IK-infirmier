@@ -18,7 +18,18 @@
       color: #333;
     }
     h1 { font-size: 1.4rem; margin-bottom: 24px; }
-    .search-container { position: relative; }
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .search-container { position: relative; flex: 1; }
+    .search-row .separator {
+      font-size: 0.85rem;
+      color: #888;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
     input {
       width: 100%;
       padding: 12px 16px;
@@ -28,6 +39,7 @@
       outline: none;
     }
     input:focus { border-color: #4a90d9; }
+    #geolocate:hover { background: #f0f4ff !important; }
     .suggestions {
       position: absolute;
       top: 100%;
@@ -111,9 +123,15 @@
 <body>
   <h1>Trouver le cabinet infirmier le plus proche</h1>
 
-  <div class="search-container">
-    <input type="text" id="address" placeholder="Saisissez une adresse..." autocomplete="off">
-    <ul class="suggestions" id="suggestions"></ul>
+  <div class="search-row">
+    <div class="search-container">
+      <input type="text" id="address" placeholder="Saisissez une adresse..." autocomplete="off">
+      <ul class="suggestions" id="suggestions"></ul>
+    </div>
+    <span class="separator">OU</span>
+    <button id="geolocate" style="padding:12px 16px;font-size:1rem;border:2px solid #7baed9;border-radius:8px;background:white;color:#4a90d9;cursor:pointer;white-space:nowrap">
+      Utiliser ma position
+    </button>
   </div>
 
   <div id="loading">Calcul des itinéraires en cours...</div>
@@ -395,6 +413,35 @@
         line.setStyle({ weight: index === 0 ? 5 : 3, opacity: index === 0 ? 0.9 : 0.5 });
       });
     }
+
+    // Géolocalisation
+    document.getElementById("geolocate").addEventListener("click", async () => {
+      if (!navigator.geolocation) {
+        errorDiv.textContent = "La géolocalisation n'est pas supportée par votre navigateur.";
+        errorDiv.style.display = "block";
+        return;
+      }
+      const btn = document.getElementById("geolocate");
+      btn.disabled = true;
+      btn.textContent = "Localisation en cours...";
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          addressInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+          window.goatcounter?.count({ path: "recherche/geolocation", title: "Recherche géolocalisation", event: true });
+          await computeRoutes(longitude, latitude);
+          btn.disabled = false;
+          btn.textContent = "Utiliser ma position";
+        },
+        (err) => {
+          errorDiv.textContent = "Impossible d'obtenir votre position. Vérifiez les autorisations de localisation.";
+          errorDiv.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Utiliser ma position";
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
 
     // Fermer les suggestions en cliquant ailleurs
     document.addEventListener("click", (e) => {
