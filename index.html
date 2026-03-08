@@ -7,6 +7,13 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script data-goatcounter="https://fchabouis.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
+    }
+  }
+  </script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -139,27 +146,12 @@
   <div id="map"></div>
   <div id="results"></div>
 
-  <script>
+  <script type="module">
+    import { fetchNearby } from './fetchInfirmaries.js';
+
     const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad", "#27ae60", "#c0392b"];
 
-    const CABINETS = [
-      { name: "Chazelles", lat: 45.647070, lon: 0.371071 },
-      { name: "Géraldine", lat: 45.57327615031734, lon: 0.5580555368320286 },
-      { name: "Vouzan", lat: 45.6025979, lon: 0.3570027 },
-      { name: "Villebois Lavalette", lat: 45.480848, lon: 0.273783 },
-      { name: "Dignac", lat: 45.55621200352211, lon: 0.2771556694711164 },
-      { name: "Mareuil", lat: 45.45310210433571, lon: 0.45203306662768794 },
-      { name: "Piégut-Pluviers", lat: 45.62261145249738, lon: 0.6918268924571492 },
-      { name: "Montbron", lat: 45.659433, lon: 0.502931 },
-      { name: "Nontron", lat: 45.523664, lon: 0.659065 },
-      // Martine
-      { name: "Saint-Pol-sur-Ternoise", lat: 50.38390423695588, lon: 2.3435678523852626 },
-      { name: "Blangy", lat: 50.4222027994367, lon: 2.1703225464005587 },
-      { name: "Anvin", lat: 50.4502495213319, lon: 2.261045213187787 },
-      { name: "Tincques", lat: 50.35356673965799, lon: 2.4908286321398183 },
-    ];
-
-    const addressInput = document.getElementById("address");
+const addressInput = document.getElementById("address");
     const suggestionsList = document.getElementById("suggestions");
     const resultsDiv = document.getElementById("results");
     const loadingDiv = document.getElementById("loading");
@@ -254,36 +246,22 @@
 
     const MAX_ROUTING_CALLS = 3;
 
-    function haversineDistance(lat1, lon1, lat2, lon2) {
-      const toRad = x => x * Math.PI / 180;
-      const R = 6371000;
-      const dLat = toRad(lat2 - lat1);
-      const dLon = toRad(lon2 - lon1);
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
     async function computeRoutes(startLon, startLat) {
       loadingDiv.style.display = "block";
       resultsDiv.style.display = "none";
       errorDiv.style.display = "none";
 
       try {
-        // Pré-tri par distance à vol d'oiseau, on ne route que les N plus proches
-        const sorted = CABINETS
-          .map(cab => ({ ...cab, crowDist: haversineDistance(startLat, startLon, cab.lat, cab.lon) }))
-          .sort((a, b) => a.crowDist - b.crowDist);
+        const nearby = await fetchNearby(startLat, startLon, MAX_ROUTING_CALLS);
 
-        const closest = sorted.slice(0, MAX_ROUTING_CALLS);
-
-        const promises = closest.map(cab =>
+        const promises = nearby.map(inf =>
           fetch("https://data.geopf.fr/navigation/itineraire", {
             method: "POST",
             headers: { "Accept": "application/json", "Content-Type": "application/json" },
             body: JSON.stringify({
               resource: "bdtopo-osrm",
               start: `${startLon},${startLat}`,
-              end: `${cab.lon},${cab.lat}`,
+              end: `${inf.longitude},${inf.latitude}`,
               profile: "car",
               getSteps: false,
               getBbox: false,
@@ -292,9 +270,9 @@
           })
           .then(r => r.json())
           .then(data => ({
-            name: cab.name,
-            lat: cab.lat,
-            lon: cab.lon,
+            name: `${inf.prenom} ${inf.nom}`,
+            lat: inf.latitude,
+            lon: inf.longitude,
             distance: data.distance,
             duration: data.duration,
             geometry: data.geometry,
