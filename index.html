@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Infirmier le plus proche</title>
+  <title>Indemnités kilométriques - Infirmier le plus proche</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script data-goatcounter="https://fchabouis.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
@@ -212,10 +212,30 @@
       margin-top: 12px;
       display: none;
     }
+    #ik-block {
+      display: none;
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid #f0d060;
+      border-radius: 8px;
+      background: #fff9e6;
+    }
+    #ik-block h2 {
+      font-size: 1rem;
+      margin-bottom: 10px;
+    }
+    #ik-block .ik-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 0.95rem;
+    }
+    #ik-block .ik-label { color: #555; }
+    #ik-block .ik-value { font-weight: 600; }
   </style>
 </head>
 <body>
-  <h1>Trouver le cabinet infirmier le plus proche</h1>
+  <h1>Indemnités kilométriques<br /><small>Trouver le cabinet infirmier le plus proche</small></h1>
 
   <div class="search-row">
     <div class="search-container">
@@ -233,6 +253,13 @@
   <div id="map"></div>
   <div id="add-cabinet-container" style="display:none; text-align:right; margin-top:12px;">
     <button id="add-cabinet-btn" style="display:inline-block;">Ajouter un cabinet manquant</button>
+  </div>
+  <div id="ik-block">
+    <h2>Indemnités kilométriques</h2>
+    <p style="color:#888;font-size:0.85rem;margin-bottom:10px;">Basées sur le cabinet le plus proche</p>
+    <div class="ik-row"><span class="ik-label">Distance A/R</span><span class="ik-value" id="ik-ar"></span></div>
+    <div class="ik-row"><span class="ik-label">Distance IK, en plaine</span><span class="ik-value" id="ik-plaine"></span></div>
+    <div class="ik-row"><span class="ik-label">Distance IK, en montagne</span><span class="ik-value" id="ik-montagne"></span></div>
   </div>
   <div id="results"></div>
 
@@ -497,6 +524,18 @@ const addressInput = document.getElementById("address");
       });
       resultsDiv.style.display = "block";
       document.getElementById("add-cabinet-container").style.display = "block";
+
+      // Indemnités kilométriques
+      if (results.length > 0) {
+        const distKm = results[0].distance / 1000;
+        const ar = distKm * 2;
+        const ikPlaine = Math.max(ar - 4, 0);
+        const ikMontagne = Math.max(ar - 2, 0);
+        document.getElementById("ik-ar").textContent = ar.toFixed(1) + " km";
+        document.getElementById("ik-plaine").textContent = ikPlaine.toFixed(1) + " km";
+        document.getElementById("ik-montagne").textContent = ikMontagne.toFixed(1) + " km";
+        document.getElementById("ik-block").style.display = "block";
+      }
     }
 
     function highlightRoute(name, routeLayersMap) {
