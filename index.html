@@ -288,7 +288,7 @@
   </div>
 
   <script type="module">
-    import { fetchNearby, addInfirmary } from './nurses_api.js';
+    import { fetchNearby, addInfirmary, saveSearch } from './nurses_api.js';
 
     const ROUTE_COLORS = ["#2563eb", "#e67e22", "#8e44ad", "#27ae60", "#c0392b"];
 
@@ -386,6 +386,7 @@ const addressInput = document.getElementById("address");
       lastSearchLon = lon;
       lastSearchLat = lat;
       window.goatcounter?.count({ path: "recherche/" + feature.properties.label, title: "Recherche adresse", event: true });
+      saveSearch({ query: feature.properties.label, latitude: lat, longitude: lon });
       await computeRoutes(lon, lat);
     }
 
@@ -565,6 +566,7 @@ const addressInput = document.getElementById("address");
           const { latitude, longitude } = pos.coords;
           addressInput.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
           window.goatcounter?.count({ path: "recherche/geolocation", title: "Recherche géolocalisation", event: true });
+          saveSearch({ query: "geolocation", latitude, longitude });
           await computeRoutes(longitude, latitude);
           btn.disabled = false;
           btn.textContent = "Utiliser ma position";
