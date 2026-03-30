@@ -15,6 +15,14 @@ export async function fetchNearby(lat, lng, limit = 10) {
   return data;
 }
 
+export async function saveSearch({ query, latitude, longitude }) {
+  const position = `SRID=4326;POINT(${longitude} ${latitude})`;
+  const { error } = await supabase
+    .from("searches")
+    .insert([{ query, position }]);
+  if (error) console.error("Failed to save search:", error);
+}
+
 export async function addInfirmary({ latitude, longitude, prenom, nom }) {
   const position = `SRID=4326;POINT(${longitude} ${latitude})`;
   const { data, error } = await supabase
