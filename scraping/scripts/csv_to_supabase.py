@@ -19,6 +19,17 @@ INSERT_SQL = """
 INSERT INTO public.infirmary
   (rpps, nom, prenom, adresse, rue, code_postal, ville, departement, region, position, visites_domicile)
 VALUES %s
+ON CONFLICT (rpps) DO UPDATE SET
+  nom = EXCLUDED.nom,
+  prenom = EXCLUDED.prenom,
+  adresse = EXCLUDED.adresse,
+  rue = EXCLUDED.rue,
+  code_postal = EXCLUDED.code_postal,
+  ville = EXCLUDED.ville,
+  departement = EXCLUDED.departement,
+  region = EXCLUDED.region,
+  position = EXCLUDED.position,
+  visites_domicile = EXCLUDED.visites_domicile
 """
 
 TEMPLATE = (
